@@ -57,7 +57,7 @@ VAR=$(echo "$BASH_VERSION")
 [[ -z "$(which mktemp)" ]] && echo "Program 'mktemp' not found in PATH!" && usage && exit 1
 
 # Options parsing
-while getopts ":c:o:r:dhv" OPTION; do
+while getopts "c:o:r:d:hv" OPTION; do
   case "$OPTION" in
     c)
       if [[ "$OPTARG" =~ ^(([0-9]+(\.[0-9]+(\.[0-9]+)?)?)(-[0-9]+)?)$ ]]; then
@@ -90,7 +90,6 @@ while getopts ":c:o:r:dhv" OPTION; do
       fi
       ;;
     d)
-
       if [[ -d "${OPTARG}" ]]; then
         d_directory=${OPTARG}
       fi
@@ -123,17 +122,25 @@ if [[ "${o_version}" == "ubuntu" ]] && [[ "${r_version}" =~ [0-9]+ ]]; then
   usage && exit 1
 fi
 
+# Generate some temp files necessary for future operations
 TMPFILE1=$(mktemp /tmp/chef-server-url-list.XXXXXXXX)
 TMPFILE2=$(mktemp /tmp/chef-server-url-list.XXXXXXXX)
 TMPFILE3=$(mktemp /tmp/chef-server-url-list.XXXXXXXX)
+
+# Variables to construct REGEX searching
 URLBASE="https://packagecloud.io/chef/stable/packages"
 OSREGEX="(el|ubuntu)/([0-9]+|[a-z]+)"
 PKREGEX="(chef-server-core)(-|_)([0-9]+(\.[0-9]+){2}(-[0-9]+)?)(\.ubuntu\.|\.el)?([0-9]+(\.[0-9]+)?)?(_amd|\.x86_)64\.(rpm|deb)"
 
+# Aggregate REGEX syntax variable to prevent excessively long lines
 REGEX_MATCH="${URLBASE}/${OSREGEX}/${PKREGEX}/download"
+
+# Get HTML page containing download URLs and parse file using grep
 curl -s -o $TMPFILE1 https://downloads.chef.io/chef-server/redhat/
 grep -Eo "$REGEX_MATCH" $TMPFILE1 | sort -r | uniq > $TMPFILE2
 rm $TMPFILE1
+
+# Filter URLs parsed based on user OS and OS release constraints
 while IFS='' read -r line || [[ -n "$line" ]]; do
   #echo "Line is: '$line'"
   if [[ "$line" =~ ${o_version}(/)?${r_version} ]]; then
@@ -143,6 +150,7 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
 done < $TMPFILE2
 rm $TMPFILE2
 
+# URL parsing to find greatest matching version from user input
 if [[ "${c_version}" == "latest" ]]; then
   CHEF_URL=$(tail -n 1 ${TMPFILE3})
 else
@@ -151,7 +159,11 @@ fi
 rm $TMPFILE3
 [[ -z "${CHEF_URL}" ]] && echo "ERROR: CHEF Server download URL could not be found matching your inputs" && exit 1
 
+# Download binary
 CHEF_VERSION=$(echo "${CHEF_URL}" | grep -Eo "(${PKREGEX})")
 curl -s -k -o ${d_directory}/${CHEF_VERSION} ${CHEF_URL}
-[[ $? -eq 0 ]] && [[ $VERBOSE -eq 1 ]] && echo "Downloaded ${CHEF_VERSION} to ${d_directory}/${CHEF_VERSION}"
-exit $?
+EXIT_CODE=$?
+[[ $EXIT_CODE -eq 0 ]] && [[ $VERBOSE -eq 1 ]] && echo "Downloaded ${CHEF_VERSION} to ${d_directory}/${CHEF_VERSION}"
+
+# Exit using cURL's exit code
+exit $EXIT_CODE
